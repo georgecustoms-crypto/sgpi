@@ -329,5 +329,5 @@ if __name__ == "__main__":
         target=main,
         view=ft.WEB_BROWSER,
         host="0.0.0.0",
-        port=8550
+        port=10000
     )
