@@ -7,8 +7,6 @@ from openpyxl import load_workbook
 import sys
 
 # ================= CONFIG =================
-
-# Definir pasta base compatível web e local
 if sys.platform == "win32":
     base_path = os.environ.get("LOCALAPPDATA", os.getcwd())
 else:
@@ -16,14 +14,12 @@ else:
 
 APP_FOLDER = os.path.join(base_path, "SGPI")
 os.makedirs(APP_FOLDER, exist_ok=True)
-
 DB_PATH = os.path.join(APP_FOLDER, "sgpi.db")
 
 # ================= BANCO =================
 def init_db():
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS salas (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -34,7 +30,6 @@ def init_db():
             tipo_escritorio TEXT
         )
     """)
-
     cursor.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -43,19 +38,16 @@ def init_db():
             nivel TEXT
         )
     """)
-
-    # Criar admin padrão
     cursor.execute("SELECT * FROM usuarios WHERE usuario='admin'")
     if not cursor.fetchone():
         cursor.execute(
             "INSERT INTO usuarios (usuario, senha, nivel) VALUES (?, ?, ?)",
             ("admin", "123", "admin")
         )
-
     conn.commit()
     conn.close()
 
-# ================= FUNÇÕES =================
+# ================= FUNÇÕES BANCO =================
 def verificar_login(usuario, senha):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -86,13 +78,13 @@ def excluir_usuario(uid):
     conn.commit()
     conn.close()
 
-def inserir_sala(proprietario, andar, sala, empresa, tipo):
+def inserir_sala(p, a, s, e, t):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO salas (proprietario, andar, sala, empresa, tipo_escritorio)
         VALUES (?, ?, ?, ?, ?)
-    """, (proprietario, andar, sala, empresa, tipo))
+    """, (p, a, s, e, t))
     conn.commit()
     conn.close()
 
@@ -120,12 +112,10 @@ def realizar_backup():
 def importar_salas_excel(caminho):
     if not os.path.exists(caminho):
         return 0
-
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     wb = load_workbook(caminho)
     sheet = wb.active
-
     total = 0
     for row in sheet.iter_rows(min_row=2, values_only=True):
         cursor.execute("""
@@ -133,7 +123,6 @@ def importar_salas_excel(caminho):
             VALUES (?, ?, ?, ?, ?)
         """, row)
         total += 1
-
     conn.commit()
     conn.close()
     return total
@@ -142,17 +131,16 @@ def importar_salas_excel(caminho):
 def main(page: ft.Page):
     page.title = "SGPI – Sistema de Gestão Predial Inteligente"
     page.theme_mode = ft.ThemeMode.LIGHT
-
     usuario_logado = {"nivel": None, "nome": ""}
 
-    # ---------- LOGIN ----------
+    # ================= LOGIN =================
     def tela_login():
         page.clean()
         page.vertical_alignment = ft.MainAxisAlignment.CENTER
         page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
 
-        usuario = ft.TextField(label="Usuário", prefix_icon=ft.icons.PERSON, width=350)
-        senha = ft.TextField(label="Senha", password=True, prefix_icon=ft.icons.LOCK, width=350)
+        usuario = ft.TextField(label="Usuário", prefix_icon="person", width=350)
+        senha = ft.TextField(label="Senha", password=True, prefix_icon="lock", width=350)
         mensagem = ft.Text("")
 
         def entrar(e):
@@ -176,14 +164,14 @@ def main(page: ft.Page):
                         ft.Text("Faça login para continuar"),
                         usuario,
                         senha,
-                        ft.ElevatedButton("Entrar", icon=ft.icons.LOGIN, on_click=entrar),
+                        ft.ElevatedButton("Entrar", icon="login", on_click=entrar),
                         mensagem
                     ], spacing=20, horizontal_alignment=ft.CrossAxisAlignment.CENTER)
                 )
             )
         )
 
-    # ---------- DASHBOARD ----------
+    # ================= DASHBOARD =================
     def dashboard():
         page.clean()
         dialog = ft.AlertDialog(modal=True)
@@ -208,8 +196,8 @@ def main(page: ft.Page):
             page.update()
 
         campo_busca = ft.TextField(
-            label="Buscar por Proprietário, Sala ou Empresa",
-            prefix_icon=ft.icons.SEARCH,
+            label="Buscar",
+            prefix_icon="search",
             on_change=lambda e: atualizar(e.control.value)
         )
 
@@ -245,11 +233,7 @@ def main(page: ft.Page):
                 atualizar()
                 page.update()
 
-            dialog.title = ft.Row([
-                ft.Text("Cadastro de Sala", size=20, weight="bold"),
-                ft.IconButton(icon=ft.icons.CLOSE, on_click=fechar)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
-
+            dialog.title = ft.Text("Cadastrar Sala")
             dialog.content = ft.Column([p, a, s, em, t])
             dialog.actions = [
                 ft.TextButton("Cancelar", on_click=fechar),
@@ -271,14 +255,16 @@ def main(page: ft.Page):
         def atualizar_usuarios():
             tabela_usuarios.rows.clear()
             for uid, usuario, nivel in listar_usuarios():
-                tabela_usuarios.rows.append(ft.DataRow(cells=[
-                    ft.DataCell(ft.Text(usuario)),
-                    ft.DataCell(ft.Text(nivel)),
-                    ft.DataCell(ft.IconButton(
-                        icon=ft.icons.DELETE,
-                        on_click=lambda e, id=uid: deletar_usuario(id)
-                    ))
-                ]))
+                tabela_usuarios.rows.append(
+                    ft.DataRow(cells=[
+                        ft.DataCell(ft.Text(usuario)),
+                        ft.DataCell(ft.Text(nivel)),
+                        ft.DataCell(ft.IconButton(
+                            icon="delete",
+                            on_click=lambda e, id=uid: deletar_usuario(id)
+                        ))
+                    ])
+                )
             page.update()
 
         def deletar_usuario(uid):
@@ -293,21 +279,17 @@ def main(page: ft.Page):
                 ft.dropdown.Option("operador")
             ])
 
-            def fechar(e):
-                dialog.open = False
-                page.update()
-
             def salvar(e):
                 adicionar_usuario(u.value, s.value, n.value)
                 dialog.open = False
                 atualizar_usuarios()
                 page.update()
 
-            dialog.title = ft.Row([
-                ft.Text("Novo Usuário", size=20, weight="bold"),
-                ft.IconButton(icon=ft.icons.CLOSE, on_click=fechar)
-            ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN)
+            def fechar(e):
+                dialog.open = False
+                page.update()
 
+            dialog.title = ft.Text("Novo Usuário")
             dialog.content = ft.Column([u, s, n])
             dialog.actions = [
                 ft.TextButton("Cancelar", on_click=fechar),
@@ -316,7 +298,6 @@ def main(page: ft.Page):
             dialog.open = True
             page.update()
 
-        # ---------- TABS ----------
         atualizar()
         atualizar_usuarios()
 
@@ -325,7 +306,7 @@ def main(page: ft.Page):
             ft.Tab(text="Admin Salas", content=ft.Column([
                 ft.ElevatedButton("Cadastrar Sala", on_click=abrir_cadastro),
                 ft.ElevatedButton("Importar Excel", on_click=lambda e: file_picker.pick_files(allowed_extensions=["xlsx"])),
-                ft.ElevatedButton("Gerar Backup", on_click=lambda e: realizar_backup_msg())
+                ft.ElevatedButton("Gerar Backup", icon="backup", on_click=lambda e: backup_dialog())
             ]))
         ]
 
@@ -337,23 +318,21 @@ def main(page: ft.Page):
                 ]))
             )
 
-        # ---------- BACKUP VISUAL ----------
-        def realizar_backup_msg():
+        def backup_dialog():
             caminho = realizar_backup()
             if caminho:
-                page.snack_bar = ft.SnackBar(ft.Text(f"Backup criado: {caminho}"), bgcolor=ft.colors.GREEN_400)
+                page.snack_bar = ft.SnackBar(ft.Text(f"Backup criado com sucesso!\n{caminho}"))
             else:
-                page.snack_bar = ft.SnackBar(ft.Text("Erro ao criar backup"), bgcolor=ft.colors.RED_400)
+                page.snack_bar = ft.SnackBar(ft.Text("Erro ao criar backup!"))
             page.snack_bar.open = True
             page.update()
 
-        # ---------- APPBAR ----------
         page.add(
             ft.AppBar(
-                title=ft.Text("SGPI – Sistema de Gestão Predial Inteligente"),
+                title=ft.Text(f"SGPI – Sistema de Gestão Predial Inteligente"),
                 actions=[
                     ft.Text(f"Olá, {usuario_logado['nome']}"),
-                    ft.IconButton(icon=ft.icons.LOGOUT, on_click=lambda e: tela_login())
+                    ft.IconButton(icon="logout", on_click=lambda e: tela_login())
                 ]
             ),
             ft.Tabs(tabs=tabs)
@@ -361,12 +340,8 @@ def main(page: ft.Page):
 
     tela_login()
 
-# ================= EXECUÇÃO =================
+# ================= EXEC =================
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 10000))
-    ft.app(
-        target=main,
-        host="0.0.0.0",
-        port=port
-    )
+    ft.app(target=main, host="0.0.0.0", port=port)
