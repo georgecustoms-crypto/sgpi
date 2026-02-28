@@ -1,28 +1,36 @@
 import flet as ft
-import sqlite3
+import psycopg2
+import os
 import shutil
 from datetime import datetime
-import os
 from openpyxl import load_workbook
-import sys
+from urllib.parse import urlparse
 
 # ================= CONFIG =================
-if sys.platform == "win32":
-    base_path = os.environ.get("LOCALAPPDATA", os.getcwd())
-else:
-    base_path = os.getcwd()
-
-APP_FOLDER = os.path.join(base_path, "SGPI")
+APP_FOLDER = os.path.join(os.getcwd(), "data")
 os.makedirs(APP_FOLDER, exist_ok=True)
-DB_PATH = os.path.join(APP_FOLDER, "sgpi.db")
+BACKUP_FOLDER = os.path.join(APP_FOLDER, "backups")
+os.makedirs(BACKUP_FOLDER, exist_ok=True)
 
 # ================= BANCO =================
+DATABASE_URL = "postgres://postgres:26ge453*t28@db.hulqfzeslzusxhvdnnhu.supabase.co:5432/postgres"
+
+def get_conn():
+    result = urlparse(DATABASE_URL)
+    return psycopg2.connect(
+        dbname=result.path[1:],
+        user=result.username,
+        password=result.password,
+        host=result.hostname,
+        port=result.port
+    )
+
 def init_db():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS salas (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             proprietario TEXT,
             andar TEXT,
             sala TEXT,
@@ -30,100 +38,109 @@ def init_db():
             tipo_escritorio TEXT
         )
     """)
-    cursor.execute("""
+    cur.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
-            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            id SERIAL PRIMARY KEY,
             usuario TEXT UNIQUE,
             senha TEXT,
             nivel TEXT
         )
     """)
-    cursor.execute("SELECT * FROM usuarios WHERE usuario='admin'")
-    if not cursor.fetchone():
-        cursor.execute(
-            "INSERT INTO usuarios (usuario, senha, nivel) VALUES (?, ?, ?)",
+    cur.execute("SELECT * FROM usuarios WHERE usuario='admin'")
+    if not cur.fetchone():
+        cur.execute(
+            "INSERT INTO usuarios (usuario, senha, nivel) VALUES (%s, %s, %s)",
             ("admin", "123", "admin")
         )
     conn.commit()
+    cur.close()
     conn.close()
 
 # ================= FUNÇÕES =================
 def verificar_login(usuario, senha):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT nivel FROM usuarios WHERE usuario=? AND senha=?", (usuario, senha))
-    resultado = cursor.fetchone()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT nivel FROM usuarios WHERE usuario=%s AND senha=%s", (usuario, senha))
+    resultado = cur.fetchone()
+    cur.close()
     conn.close()
     return resultado
 
 def listar_usuarios():
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, usuario, nivel FROM usuarios")
-    dados = cursor.fetchall()
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("SELECT id, usuario, nivel FROM usuarios")
+    dados = cur.fetchall()
+    cur.close()
     conn.close()
     return dados
 
 def adicionar_usuario(usuario, senha, nivel):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("INSERT INTO usuarios (usuario, senha, nivel) VALUES (?, ?, ?)", (usuario, senha, nivel))
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO usuarios (usuario, senha, nivel) VALUES (%s, %s, %s)", (usuario, senha, nivel))
     conn.commit()
+    cur.close()
     conn.close()
 
 def excluir_usuario(uid):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("DELETE FROM usuarios WHERE id=?", (uid,))
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("DELETE FROM usuarios WHERE id=%s", (uid,))
     conn.commit()
+    cur.close()
     conn.close()
 
 def inserir_sala(proprietario, andar, sala, empresa, tipo):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute("""
         INSERT INTO salas (proprietario, andar, sala, empresa, tipo_escritorio)
-        VALUES (?, ?, ?, ?, ?)
+        VALUES (%s, %s, %s, %s, %s)
     """, (proprietario, andar, sala, empresa, tipo))
     conn.commit()
+    cur.close()
     conn.close()
 
 def buscar_salas(termo=""):
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
-    cursor.execute("""
+    conn = get_conn()
+    cur = conn.cursor()
+    like_term = f"%{termo}%"
+    cur.execute("""
         SELECT proprietario, andar, sala, empresa, tipo_escritorio
         FROM salas
-        WHERE empresa LIKE ? OR sala LIKE ? OR proprietario LIKE ?
-    """, (f"%{termo}%", f"%{termo}%", f"%{termo}%"))
-    dados = cursor.fetchall()
+        WHERE empresa ILIKE %s OR sala ILIKE %s OR proprietario ILIKE %s
+    """, (like_term, like_term, like_term))
+    dados = cur.fetchall()
+    cur.close()
     conn.close()
     return dados
 
 def realizar_backup():
     try:
-        nome = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
-        caminho = os.path.join(APP_FOLDER, nome)
-        shutil.copy2(DB_PATH, caminho)
-        return caminho
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        backup_file = os.path.join(BACKUP_FOLDER, f"backup_{timestamp}.sql")
+        os.system(f"pg_dump {DATABASE_URL} > {backup_file}")
+        return backup_file
     except:
         return None
 
 def importar_salas_excel(caminho):
     if not os.path.exists(caminho):
         return 0
-    conn = sqlite3.connect(DB_PATH)
-    cursor = conn.cursor()
+    conn = get_conn()
+    cur = conn.cursor()
     wb = load_workbook(caminho)
     sheet = wb.active
     total = 0
     for row in sheet.iter_rows(min_row=2, values_only=True):
-        cursor.execute("""
+        cur.execute("""
             INSERT INTO salas (proprietario, andar, sala, empresa, tipo_escritorio)
-            VALUES (?, ?, ?, ?, ?)
+            VALUES (%s, %s, %s, %s, %s)
         """, row)
         total += 1
     conn.commit()
+    cur.close()
     conn.close()
     return total
 
@@ -177,7 +194,6 @@ def main(page: ft.Page):
         dialog = ft.AlertDialog(modal=True)
         page.dialog = dialog
 
-        # ---------- TABELA SALAS ----------
         tabela = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Proprietário")),
@@ -201,7 +217,7 @@ def main(page: ft.Page):
             on_change=lambda e: atualizar(e.control.value)
         )
 
-        # ---------- IMPORTAÇÃO ----------
+        # File picker
         file_picker = ft.FilePicker()
         page.overlay.append(file_picker)
 
@@ -215,7 +231,7 @@ def main(page: ft.Page):
 
         file_picker.on_result = arquivo_escolhido
 
-        # ---------- CADASTRO SALA ----------
+        # Cadastro sala
         def abrir_cadastro(e):
             p = ft.TextField(label="Proprietário")
             a = ft.TextField(label="Andar")
@@ -242,7 +258,7 @@ def main(page: ft.Page):
             dialog.open = True
             page.update()
 
-        # ---------- USUÁRIOS ----------
+        # Usuários
         tabela_usuarios = ft.DataTable(
             columns=[
                 ft.DataColumn(ft.Text("Usuário")),
@@ -302,7 +318,7 @@ def main(page: ft.Page):
         atualizar()
         atualizar_usuarios()
 
-        # ---------- BACKUP ----------
+        # Backup
         def backup_dialog(page):
             caminho = realizar_backup()
             if caminho:
@@ -322,7 +338,7 @@ def main(page: ft.Page):
             page.dialog.open = True
             page.update()
 
-        # ---------- TABS ----------
+        # Tabs
         tabs = [
             ft.Tab(text="Consulta", content=ft.Column([campo_busca, tabela])),
             ft.Tab(text="Admin Salas", content=ft.Column([
@@ -342,12 +358,9 @@ def main(page: ft.Page):
 
         page.add(ft.Tabs(tabs=tabs))
 
-    # INICIA COM LOGIN
     tela_login()
-
 
 # ================= MAIN =================
 if __name__ == "__main__":
     init_db()
-    port = int(os.environ.get("PORT", 10000))
-    ft.app(target=main, host="0.0.0.0", port=port)
+    ft.app(target=main, host="0.0.0.0", port=int(os.environ.get("PORT", 10000)))
