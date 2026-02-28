@@ -47,7 +47,7 @@ def init_db():
     conn.commit()
     conn.close()
 
-# ================= FUNÇÕES BANCO =================
+# ================= FUNÇÕES =================
 def verificar_login(usuario, senha):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
@@ -78,13 +78,13 @@ def excluir_usuario(uid):
     conn.commit()
     conn.close()
 
-def inserir_sala(p, a, s, e, t):
+def inserir_sala(proprietario, andar, sala, empresa, tipo):
     conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO salas (proprietario, andar, sala, empresa, tipo_escritorio)
         VALUES (?, ?, ?, ?, ?)
-    """, (p, a, s, e, t))
+    """, (proprietario, andar, sala, empresa, tipo))
     conn.commit()
     conn.close()
 
@@ -133,11 +133,11 @@ def main(page: ft.Page):
     page.theme_mode = ft.ThemeMode.LIGHT
     usuario_logado = {"nivel": None, "nome": ""}
 
-    # ================= LOGIN =================
+    # -------- LOGIN --------
     def tela_login():
         page.clean()
         page.vertical_alignment = ft.MainAxisAlignment.CENTER
-        page.horizontal_alignment = ft.CrossAxisAlignment.CENTER
+        page.horizontal_alignment = ft.MainAxisAlignment.CENTER
 
         usuario = ft.TextField(label="Usuário", prefix_icon="person", width=350)
         senha = ft.TextField(label="Senha", password=True, prefix_icon="lock", width=350)
@@ -171,7 +171,7 @@ def main(page: ft.Page):
             )
         )
 
-    # ================= DASHBOARD =================
+    # -------- DASHBOARD --------
     def dashboard():
         page.clean()
         dialog = ft.AlertDialog(modal=True)
@@ -196,7 +196,7 @@ def main(page: ft.Page):
             page.update()
 
         campo_busca = ft.TextField(
-            label="Buscar",
+            label="Buscar por Proprietário, Sala ou Empresa",
             prefix_icon="search",
             on_change=lambda e: atualizar(e.control.value)
         )
@@ -223,21 +223,21 @@ def main(page: ft.Page):
             em = ft.TextField(label="Empresa")
             t = ft.TextField(label="Tipo Escritório")
 
-            def fechar(e):
-                dialog.open = False
-                page.update()
-
             def salvar(e):
                 inserir_sala(p.value, a.value, s.value, em.value, t.value)
                 dialog.open = False
                 atualizar()
                 page.update()
 
-            dialog.title = ft.Text("Cadastrar Sala")
+            def cancelar(e):
+                dialog.open = False
+                page.update()
+
+            dialog.title = ft.Text("Cadastro de Sala", size=20, weight="bold")
             dialog.content = ft.Column([p, a, s, em, t])
             dialog.actions = [
-                ft.TextButton("Cancelar", on_click=fechar),
-                ft.ElevatedButton("Salvar", on_click=salvar)
+                ft.ElevatedButton("Salvar", on_click=salvar),
+                ft.TextButton("Cancelar", on_click=cancelar)
             ]
             dialog.open = True
             page.update()
@@ -280,20 +280,21 @@ def main(page: ft.Page):
             ])
 
             def salvar(e):
-                adicionar_usuario(u.value, s.value, n.value)
+                nivel_selecionado = n.value or "operador"
+                adicionar_usuario(u.value, s.value, nivel_selecionado)
                 dialog.open = False
                 atualizar_usuarios()
                 page.update()
 
-            def fechar(e):
+            def cancelar(e):
                 dialog.open = False
                 page.update()
 
-            dialog.title = ft.Text("Novo Usuário")
+            dialog.title = ft.Text("Novo Usuário", size=20, weight="bold")
             dialog.content = ft.Column([u, s, n])
             dialog.actions = [
-                ft.TextButton("Cancelar", on_click=fechar),
-                ft.ElevatedButton("Salvar", on_click=salvar)
+                ft.ElevatedButton("Salvar", on_click=salvar),
+                ft.TextButton("Cancelar", on_click=cancelar)
             ]
             dialog.open = True
             page.update()
@@ -301,12 +302,33 @@ def main(page: ft.Page):
         atualizar()
         atualizar_usuarios()
 
+        # ---------- BACKUP ----------
+        def backup_dialog(page):
+            caminho = realizar_backup()
+            if caminho:
+                msg = f"Backup realizado com sucesso em:\n{caminho}"
+            else:
+                msg = "Erro ao realizar backup!"
+
+            def fechar_backup(e):
+                page.dialog.open = False
+                page.update()
+
+            page.dialog = ft.AlertDialog(
+                title=ft.Text("Backup"),
+                content=ft.Text(msg),
+                actions=[ft.ElevatedButton("Fechar", on_click=fechar_backup)]
+            )
+            page.dialog.open = True
+            page.update()
+
+        # ---------- TABS ----------
         tabs = [
             ft.Tab(text="Consulta", content=ft.Column([campo_busca, tabela])),
             ft.Tab(text="Admin Salas", content=ft.Column([
                 ft.ElevatedButton("Cadastrar Sala", on_click=abrir_cadastro),
                 ft.ElevatedButton("Importar Excel", on_click=lambda e: file_picker.pick_files(allowed_extensions=["xlsx"])),
-                ft.ElevatedButton("Gerar Backup", icon="backup", on_click=lambda e: backup_dialog())
+                ft.ElevatedButton("Gerar Backup", on_click=lambda e: backup_dialog(page))
             ]))
         ]
 
@@ -318,29 +340,13 @@ def main(page: ft.Page):
                 ]))
             )
 
-        def backup_dialog():
-            caminho = realizar_backup()
-            if caminho:
-                page.snack_bar = ft.SnackBar(ft.Text(f"Backup criado com sucesso!\n{caminho}"))
-            else:
-                page.snack_bar = ft.SnackBar(ft.Text("Erro ao criar backup!"))
-            page.snack_bar.open = True
-            page.update()
+        page.add(ft.Tabs(tabs=tabs))
 
-        page.add(
-            ft.AppBar(
-                title=ft.Text(f"SGPI – Sistema de Gestão Predial Inteligente"),
-                actions=[
-                    ft.Text(f"Olá, {usuario_logado['nome']}"),
-                    ft.IconButton(icon="logout", on_click=lambda e: tela_login())
-                ]
-            ),
-            ft.Tabs(tabs=tabs)
-        )
-
+    # INICIA COM LOGIN
     tela_login()
 
-# ================= EXEC =================
+
+# ================= MAIN =================
 if __name__ == "__main__":
     init_db()
     port = int(os.environ.get("PORT", 10000))
