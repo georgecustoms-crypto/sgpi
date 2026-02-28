@@ -4,15 +4,27 @@ import shutil
 from datetime import datetime
 import os
 from openpyxl import load_workbook
+import os
+import sys
 
 # ================= CONFIG =================
-APP_FOLDER = os.path.join(os.environ["LOCALAPPDATA"], "SGPI")
-os.makedirs(APP_FOLDER, exist_ok=True)
-DB_NAME = os.path.join(APP_FOLDER, "sgpi.db")
+
+
+if sys.platform == "win32":
+    base_path = os.environ.get("LOCALAPPDATA", os.getcwd())
+else:
+    base_path = os.getcwd()
+
+APP_FOLDER = os.path.join(base_path, "SGPI")
+
+if not os.path.exists(APP_FOLDER):
+    os.makedirs(APP_FOLDER)
+
+DB_PATH = os.path.join(APP_FOLDER, "sgpi.db")
 
 # ================= BANCO =================
 def init_db():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -47,7 +59,7 @@ def init_db():
 
 # ================= FUNÇÕES BANCO =================
 def verificar_login(usuario, senha):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT nivel FROM usuarios WHERE usuario=? AND senha=?", (usuario, senha))
     resultado = cursor.fetchone()
@@ -55,7 +67,7 @@ def verificar_login(usuario, senha):
     return resultado
 
 def listar_usuarios():
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("SELECT id, usuario, nivel FROM usuarios")
     dados = cursor.fetchall()
@@ -63,21 +75,21 @@ def listar_usuarios():
     return dados
 
 def adicionar_usuario(usuario, senha, nivel):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("INSERT INTO usuarios (usuario, senha, nivel) VALUES (?, ?, ?)", (usuario, senha, nivel))
     conn.commit()
     conn.close()
 
 def excluir_usuario(uid):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("DELETE FROM usuarios WHERE id=?", (uid,))
     conn.commit()
     conn.close()
 
 def inserir_sala(p, a, s, e, t):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         INSERT INTO salas (proprietario, andar, sala, empresa, tipo_escritorio)
@@ -87,7 +99,7 @@ def inserir_sala(p, a, s, e, t):
     conn.close()
 
 def buscar_salas(termo=""):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     cursor.execute("""
         SELECT proprietario, andar, sala, empresa, tipo_escritorio
@@ -102,7 +114,7 @@ def realizar_backup():
     try:
         nome = f"backup_{datetime.now().strftime('%Y%m%d_%H%M%S')}.db"
         caminho = os.path.join(APP_FOLDER, nome)
-        shutil.copy2(DB_NAME, caminho)
+        shutil.copy2(DB_PATH, caminho)
         return caminho
     except:
         return None
@@ -111,7 +123,7 @@ def importar_salas_excel(caminho):
     if not os.path.exists(caminho):
         return 0
 
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect(DB_PATH)
     cursor = conn.cursor()
     wb = load_workbook(caminho)
     sheet = wb.active
@@ -323,11 +335,13 @@ def main(page: ft.Page):
     tela_login()
 
 
+
+
 if __name__ == "__main__":
     init_db()
+    port = int(os.environ.get("PORT", 10000))  # fallback só para local
     ft.app(
         target=main,
-        view=ft.WEB_BROWSER,
         host="0.0.0.0",
-        port=10000
+        port=port
     )
